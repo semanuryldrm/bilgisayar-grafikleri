@@ -1,125 +1,132 @@
 #include <raylib.h>
-#include <stdio.h>
 #include "kissfft/kiss_fft.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include "fft_queue.h"
+
 
 #define FFT_SIZE 1024
+kiss_fft_cpx in[FFT_SIZE];
+kiss_fft_cpx out[FFT_SIZE];
+fft_queue *queue;
 
-static float input[FFT_SIZE];
-static float magnitudes[FFT_SIZE/2];
-static kiss_fft_cfg kissConfig;
-static kiss_fft_cpx fft_in[FFT_SIZE];
-static kiss_fft_cpx fft_out[FFT_SIZE];
+float magnitudes[FFT_SIZE / 2];
 
-static float exponent = 1.0f;                 // Audio exponentiation value
-
-void ProcessAudio(void *buffer, unsigned int frames)
-{
-    float *samples = (float *)buffer;   // Samples internally stored as <float>s
-
-    if (frames < FFT_SIZE) return;
-
-    for (int i = 0; i < FFT_SIZE; i++)
+void run_fft(fft_queue *queue) {
+    for (size_t i = 0; i < FFT_SIZE; i++)
     {
-        float left = samples[i * 2];
-        input[i] = left;
-
-        fft_in[i].r = input[i];
-        fft_in[i].i = 0.0f;
+        in[i].r = queue->samples[i];
+        in[i].i = 0;
     }
 
-    kiss_fft(kissConfig, fft_in, fft_out);
+    kiss_fft_cfg cfg = kiss_fft_alloc(FFT_SIZE, 0, NULL, NULL);
+    kiss_fft(cfg, in, out);
 
-    for (int i = 0; i < FFT_SIZE / 2; i++)
+    for (size_t i = 0; i < FFT_SIZE / 2; i++)
     {
-        float re = fft_out[i].r;
-        float im = fft_out[i].i;
+        float re = out[i].r;
+        float im = out[i].i;
+
         magnitudes[i] = sqrtf(re * re + im * im);
     }
     
-    
-        
-    
 
-    for (unsigned int frame = 0; frame < frames; frame++)
-    {
-        //printf("frame: %d\n", frame);
-
-        float *left = &samples[frame * 2 + 0], *right = &samples[frame * 2 + 1];
-
-        *left = powf(fabsf(*left), exponent) * ( (*left < 0.0f)? -1.0f : 1.0f );
-        *right = powf(fabsf(*right), exponent) * ( (*right < 0.0f)? -1.0f : 1.0f );
-
-    }
+    free(cfg);
 }
 
+void audioCallback(void *buffer, unsigned int frames) {
+    float *samples = (float *) buffer;
+    unsigned int sampleCount = frames * 2;
+
+    for (size_t i = 0; i < frames; i++)
+    {
+        float mono = (samples[2 * i] + samples[2 * i + 1]) / 2.0f;
+        push_fft_queue(queue, mono);
+        if (queue->index >= FFT_SIZE)
+        {
+            run_fft(queue);
+            clear_fft_queue(queue);
+        }
+        
+    }
+    
+    //printf("frames_count: %d\n", frames);
+}
 
 int main(int argc, char **argv) {
 
+    queue = malloc(sizeof(fft_queue));
+    queue->index = 0;
 
-    InitWindow(800, 600, "audio_visualizer");
+    InitWindow(800, 600, "music visualizer");
     InitAudioDevice();
 
-    AttachAudioMixedProcessor(ProcessAudio);
+    if (!IsAudioDeviceReady())
+    {
+        perror("audio device is not ready!");
+        exit(1);
+    }
 
-    Wave w = LoadWave("/home/sny/Downloads/memphis.wav");
+    Sound music = LoadSound("./5.mp3");
+    if (!IsSoundValid(music))
+    {
+        perror("sound file is not valid!");
+        exit(1);
+    }
 
-    Sound s = LoadSoundFromWave(w);
-    UnloadWave(w);
+    PlaySound(music);
+
+    AttachAudioStreamProcessor(music.stream, audioCallback);
     
-    SetTargetFPS(60);
-
-    kissConfig = kiss_fft_alloc(FFT_SIZE, 0, NULL, NULL);
-
-    // for (int i = 0; i < FFT_SIZE / 2; i++) {
-    //     magnitudes[i] = 100.0f; // test verisi
-    // }
-
-
-    PlaySound(s);
-
-    Color bg = ColorFromHSV(110, 0.8, 0.7);
-    ClearBackground(bg);
+    //Color bg = ColorFromHSV(110, 0.8, 0.7);
+    //Color fg = ColorFromHSV(290, 0.8, 0.7);
 
     while (!WindowShouldClose())
     {
-       
-        BeginDrawing();
         ClearBackground(BLACK);
+        BeginDrawing();
         {
-            int barCount = 64;
-            float minFreq = 20.0f;
-            float maxFreq = 20000.0f;
-            float sampleRate = 44100.0f;
+            int barWidth = 3;
+            int spacing = 1; 
+            int totalBars =(FFT_SIZE / 2) / (barWidth + spacing);
 
-            float logMin = log10f(minFreq);
-            float logMax = log10f(maxFreq);
-
-            for (int i = 0; i < barCount; i++)
+            for (size_t i = 0; i < totalBars; i++)
             {
-                float t = (float)i / (float)(barCount - 1);
-                float freq = powf(10.0f, logMin + t * (logMax - logMin));
-                int bin = (int)(freq * FFT_SIZE / sampleRate);
-                if (bin >= FFT_SIZE / 2) bin = FFT_SIZE / 2 - 1;
+                int index = i * (barWidth + spacing);
+                float mag = magnitudes[index];
+                if (mag < 1e-6f)
+                {
+                    mag = 1e-6f;
+                }
+                
+                int height = (int)(200.0f * log10f(mag));
+                if (height < 0)
+                {
+                    height = 0;
+                }
+                int x = i *(barWidth + spacing);
+                int y = 600 - height;
 
-                float mag = magnitudes[bin] * 0.05f;
-                if (mag > 300) mag = 300;
+                float hue = (360.0f * i) / (FFT_SIZE / 2);
+                Color barColor = ColorFromHSV(hue, 0.85f, 0.85f);
 
-                float barWidth = 800.0f / barCount;
-                float barX = i * barWidth;
-
-                Color c = ColorFromHSV(t * 300, 1.0f, 0.8f);
-                DrawRectangle(barX, 600 - mag, barWidth - 1, mag, c);
+                DrawRectangle(x, y, barWidth, height, barColor);
+                
             }
-            DrawText("Press ESC to exit", 10, 10, 20, RAYWHITE);
-
+            
+            // for (size_t i = 0; i < FFT_SIZE / 2; i++)
+            // {
+            //     int magnitude = (int)(200.0f * log10f(magnitudes[i]));
+            //     DrawLine(i, 600, i, 600 - magnitude, fg);
+            // }
+            
         }
         EndDrawing();
     }
-    
-    UnloadSound(s);
-    free(kissConfig);
-    CloseAudioDevice();
-    CloseWindow();
 
-    return 0;
+    DetachAudioStreamProcessor(music.stream, audioCallback);
+
+    CloseAudioDevice();
+
+    free(queue);
 }
