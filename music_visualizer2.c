@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
 
     music.frameCount = 0;
     
-    Color bg = ColorFromHSV(110, 0.8, 0.7);
+    //Color bg = ColorFromHSV(110, 0.8, 0.7);
     //Color fg = ColorFromHSV(290, 0.8, 0.7);
     SetTargetFPS(60);
 
@@ -146,7 +146,7 @@ int main(int argc, char **argv) {
         else if (appState == STATE_VISUALIZER) {
             
             DrawText(TextFormat("Çalan: %s", playlist[currentSong]), 20, 20, 25, RAYWHITE);
-            
+
             int barWidth = 3;
             int spacing = 1; 
             int totalBars =(FFT_SIZE / 2) / (barWidth + spacing);
