@@ -2,10 +2,20 @@
 #include "kissfft/kiss_fft.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h> 
+#include <string.h>
 #include "fft_queue.h"
 
 #define FFT_SIZE 1024
 #define MAX_SONGS 10
+
+static char* str_dup(const char* s);
+static char* str_dup(const char* s) {
+    size_t n = strlen(s) + 1;
+    char* p = (char*)malloc(n);
+    if (p) memcpy(p, s, n);
+    return p;
+}
 
 kiss_fft_cpx in[FFT_SIZE];
 kiss_fft_cpx out[FFT_SIZE];
@@ -13,12 +23,6 @@ fft_queue *queue;
 
 float magnitudes[FFT_SIZE / 2];
 
-typedef enum {
-    STATE_MENU,
-    STATE_VISUALIZER
-} AppState;
-
-AppState appState = STATE_MENU;
 
 const char *playlist[MAX_SONGS] = {
     "./1.mp3",
@@ -27,11 +31,17 @@ const char *playlist[MAX_SONGS] = {
     "./5.mp3"
 };
 
+int initialPlaylistCount = 4;
 int playlistCount = 4;
 int selectedSong = 0;
 int currentSong = -1;
 
 Sound music = {0};
+
+int right_panel_w = 250;
+int top_pad = 20;
+int left_pad = 20;
+int row_h = 28; 
 
 void run_fft(fft_queue *queue) {
     for (size_t i = 0; i < FFT_SIZE; i++)
@@ -71,7 +81,6 @@ void audioCallback(void *buffer, unsigned int frames) {
         
     }
     
-    //printf("frames_count: %d\n", frames);
 }
 
 void loadAndPlaySong(const char *filename) {
@@ -102,7 +111,8 @@ void goToPrevSong() {
     loadAndPlaySong(playlist[selectedSong]);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv) 
+{
 
     queue = malloc(sizeof(fft_queue));
     queue->index = 0;
@@ -113,39 +123,82 @@ int main(int argc, char **argv) {
     SetExitKey(KEY_NULL);
 
     music.frameCount = 0;
-    
-    //Color bg = ColorFromHSV(110, 0.8, 0.7);
-    //Color fg = ColorFromHSV(290, 0.8, 0.7);
+
     SetTargetFPS(60);
 
-    while (!WindowShouldClose()) {
-        BeginDrawing();
-        ClearBackground(BLACK);
+    while (!WindowShouldClose()) 
+    {
+        
+        static double lastClickTime = 0.0;
+        static int    lastClickIndex = -1;
+        const double  DOUBLE_CLICK_TIME = 0.28; 
 
-        if (appState == STATE_MENU) {
+        Vector2 mp = GetMousePosition();
+        Rectangle right_panel = (Rectangle){800 - right_panel_w, 0, right_panel_w, 600};
 
-            DrawText("Müzik Seçin:", 20, 20, 30, RAYWHITE);
+        if (CheckCollisionPointRec(mp, right_panel)) {
+            int listTop = top_pad + 40;
 
-            for (int i = 0; i < playlistCount; i++) {
-                Color color = (i == selectedSong) ? GREEN : GRAY;
-                DrawText(TextFormat("%s %s", (i == selectedSong) ? ">" : " ", playlist[i]),
-                         40, 80 + i * 30, 20, color);
-            }
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                int relY = (int)mp.y - listTop;
+                if (relY >= 0) {
+                    int idx = relY / row_h;
+                    if (idx >= 0 && idx < playlistCount) {
+                        double now = GetTime();
 
-            DrawText("[↑ ↓] seç - [ENTER] baslat", 20, 500, 20, DARKGRAY);
+                        selectedSong = idx;
 
-            if (IsKeyPressed(KEY_DOWN)) selectedSong = (selectedSong + 1) % playlistCount;
-            if (IsKeyPressed(KEY_UP)) selectedSong = (selectedSong - 1 + playlistCount) % playlistCount;
-
-            if (IsKeyPressed(KEY_ENTER)) {
-                loadAndPlaySong(playlist[selectedSong]);
-                appState = STATE_VISUALIZER;
+                        if (idx == lastClickIndex && (now - lastClickTime) < DOUBLE_CLICK_TIME) {
+                            loadAndPlaySong(playlist[selectedSong]);
+                            lastClickIndex = -1;
+                            lastClickTime = 0.0;
+                        } else {
+                            lastClickIndex = idx;
+                            lastClickTime = now;
+                        }
+                    }
+                }
             }
         }
 
-        else if (appState == STATE_VISUALIZER) {
+        if (IsFileDropped()) 
+        {
+            FilePathList dropped = LoadDroppedFiles();   
+            for (int i = 0; i < dropped.count; i++) {
+                const char *path = dropped.paths[i];
+
+                if (!IsFileExtension(path, ".wav;.ogg;.mp3;.flac")) continue;
+
+                bool exists = false;
+                for (int j = 0; j < playlistCount; j++) {
+                    if (playlist[j] && strcmp(playlist[j], path) == 0) { exists = true; break; }
+                }
+                if (exists) continue;
+
+                if (playlistCount < MAX_SONGS) {
+                    char *copy = str_dup(path);  
+                    if (copy) {
+                        playlist[playlistCount] = copy;
+                        selectedSong = playlistCount;
+                        playlistCount++;
+                        loadAndPlaySong(playlist[selectedSong]); 
+                    }
+                } else {
+                    TraceLog(LOG_WARNING, "Playlist dolu (MAX_SONGS=%d)", MAX_SONGS);
+                }
+            }
+            UnloadDroppedFiles(dropped); 
+        }
+
+                
+        BeginDrawing();
+        {
+            ClearBackground(BLACK);
+
+            Rectangle left_panel = (Rectangle){0, 0, 800 - right_panel_w, 600};
+            DrawRectangleRec(left_panel, (Color){0, 87, 48, 255});
             
-            DrawText(TextFormat("Çalan: %s", playlist[currentSong]), 20, 20, 25, RAYWHITE);
+            DrawText(TextFormat("Çalan: %s", (currentSong >= 0) ? playlist[currentSong] : "-"), 20, 20, 25, RAYWHITE);
 
             int barWidth = 3;
             int spacing = 1; 
@@ -172,32 +225,80 @@ int main(int argc, char **argv) {
                 Color barColor = ColorFromHSV(hue, 0.85f, 0.85f);
 
                 DrawRectangle(x, y, barWidth, height, barColor);
-                
             }
 
 
-            if (IsKeyPressed(KEY_N)) goToNextSong();
-            if (IsKeyPressed(KEY_B)) goToPrevSong();
+            DrawText("Playlist", (int)right_panel.x + 14, top_pad, 22, RAYWHITE);
 
+            int y = top_pad + 40;
+            for (int i = 0; i < playlistCount; i++) 
+            {
+                Rectangle row = { right_panel.x + 10, (float)y, right_panel.width - 20, (float)row_h };
+                bool sel = (i == selectedSong);
+                if (sel) DrawRectangleRounded(row, 0.15f, 6, (Color){28,34,56,255});
+                Color txt = sel ? (Color){200,215,255,255} : (Color){160,175,200,255};
 
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                StopSound(music);
-                appState = STATE_MENU;
+                const char *name = playlist[i];
+                int maxw = (int)row.width - 16;
+                int tw = MeasureText(name, 18);
+                if (tw <= maxw) 
+                {
+                    DrawText(name, (int)row.x + 8, (int)row.y + 4, 18, txt);
+                } 
+                else 
+                {
+                    static char buf[256];
+                    strncpy(buf, name, sizeof(buf)-1);
+                    buf[sizeof(buf)-1] = '\0';
+                    while (MeasureText(buf, 18) > maxw - MeasureText("...", 18) && (int)strlen(buf) > 3)
+                    {
+                        buf[strlen(buf)-1] = '\0';
+
+                    }
+                    strcat(buf, "...");
+                    DrawText(buf, (int)row.x + 8, (int)row.y + 4, 18, txt);
+                }
+
+                y += row_h;
             }
-            
-            // for (size_t i = 0; i < FFT_SIZE / 2; i++)
-            // {
-            //     int magnitude = (int)(200.0f * log10f(magnitudes[i]));
-            //     DrawLine(i, 600, i, 600 - magnitude, fg);
-            // }
+
+
+            if (IsKeyPressed(KEY_N)) 
+                goToNextSong();
+            if (IsKeyPressed(KEY_B)) 
+                goToPrevSong();
+
+            if (IsKeyPressed(KEY_DOWN)) 
+                selectedSong = (selectedSong + 1) % playlistCount;
+            if (IsKeyPressed(KEY_UP))
+                selectedSong = (selectedSong - 1 + playlistCount) % playlistCount;
+
+            if (IsKeyPressed(KEY_ENTER)) {
+                if (selectedSong >= 0 && selectedSong < playlistCount) {
+                    loadAndPlaySong(playlist[selectedSong]);
+            }
+            }
+            if (IsKeyPressed(KEY_SPACE)) 
+            {
+                if(IsSoundPlaying(music)) 
+                    StopSound(music);
+                else if(currentSong >= 0) 
+                    PlaySound(music);
+            }
             
         }
         EndDrawing();
     }
 
-    if (music.frameCount > 0) {
+
+    if (music.frameCount > 0)
+    {
         DetachAudioStreamProcessor(music.stream, audioCallback);
         UnloadSound(music);
+    }
+
+    for (int i = initialPlaylistCount; i < playlistCount; i++) {
+        free((void*)playlist[i]);
     }
 
     free(queue);
@@ -206,4 +307,6 @@ int main(int argc, char **argv) {
     CloseAudioDevice();
     CloseWindow();
 
+    return 0;
+    
 }
