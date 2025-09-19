@@ -1,10 +1,22 @@
+# ----- Ayarlar -----
+CC=C:/msys64/mingw64/bin/gcc.exe
+CFLAGS=-O2 -Wall -IC:/msys64/mingw64/include -I./kissfft
+LDFLAGS=-LC:/msys64/mingw64/lib
+LIBS=-lraylib -lopengl32 -lgdi32 -lwinmm -luser32 -lshell32 -lm
+
+
+# ----- Hedefler -----
 cember:
-	clang -o cember cember.c -lraylib -lm
+	$(CC) -o cember cember.c $(CFLAGS) $(LDFLAGS) $(LIBS)
+
 cart:
-	clang -o cart cart.c -lraylib -lm
+	$(CC) -o cart cart.c $(CFLAGS) $(LDFLAGS) $(LIBS)
+
 lorenz_system:
-	clang -o lorenz_system lorenz_system.c -lraylib -lm
+	$(CC) -o lorenz_system lorenz_system.c $(CFLAGS) $(LDFLAGS) $(LIBS)
+
 music_visualizer:
-	clang -o music_visualizer music_visualizer.c kissfft/kiss_fft.c -lraylib -lm -I./kissfft/
+	$(CC) -o music_visualizer music_visualizer.c kissfft/kiss_fft.c $(CFLAGS) $(LDFLAGS) $(LIBS)
+
 music_visualizer2:
-	clang music_visualizer2.c -o music_visualizer2 kissfft/kiss_fft.c -lraylib -lm -I./kissfft/ -ldl -lpthread -lGL -lX11
+	$(CC) music_visualizer2.c kissfft/kiss_fft.c -o music_visualizer2.exe $(CFLAGS) $(LDFLAGS) $(LIBS)

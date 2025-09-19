@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run music_visualizer2",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/music_visualizer2.exe",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "copy DLLs",
+      "console": "integratedTerminal"
+    }
+  ]
+}
